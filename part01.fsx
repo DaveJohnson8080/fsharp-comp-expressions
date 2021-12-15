@@ -158,3 +158,191 @@ let multiplied2 =
         }
 printfn "multiplied=%A" multiplied2
 
+type TraceBuilder() =
+    member this.Bind(m, f) =
+        match m with
+        | None ->
+            printfn "Binding with None. Exiting."
+        | Some a ->
+            printfn "Binding with Some(%A). Continuing" a
+        Option.bind f m
+
+    member this.Return(x) =
+        printfn "Returning a unwrapped %A as an option" x
+        Some x
+
+    member this.ReturnFrom(m) =
+        printfn "Returning an option (%A) directly" m
+        m
+
+    member this.Zero() =
+        printfn "Zero"
+        None
+
+    member this.Yield(x) =
+        printfn "Yield an unwrapped %A as an option" x
+        Some x
+
+    member this.YieldFrom(m) =
+        printfn "Yield an option (%A) directly" m
+        m
+
+    member this.Combine (a,b) =
+        match a,b with
+        | Some a', Some b' ->
+            printfn "combining %A and %A" a' b'
+            Some (a' + b')
+        | Some a', None ->
+            printfn "combining %A with None" a'
+            Some a'
+        | None, Some b' ->
+            printfn "combining None with %A" b'
+            Some b'
+        | None, None ->
+            printfn "combining None with None"
+            None
+
+    member this.Delay(f) =
+        printfn "Delay"
+        f()
+
+// make an instance of the workflow
+let trace = new TraceBuilder()
+
+trace {
+    return 1
+    } |> printfn "Result 1: %A"
+
+trace {
+    return! Some 2
+    } |> printfn "Result 2: %A"
+
+trace {
+    let! x = Some 1
+    let! y = Some 2
+    return x + y
+    } |> printfn "Result 3: %A"
+
+trace {
+    let! x = None
+    let! y = Some 1
+    return x + y
+    } |> printfn "Result 4: %A"
+
+trace {
+    do! Some (printfn "...expression that returns unit")
+    do! Some (printfn "...another expression that returns unit")
+    let! x = Some (1)
+    return x
+    } |> printfn "Result from do: %A"
+
+trace {
+} 
+|> printfn "Result for empty: %A"
+
+trace {
+    printfn "hi"
+} |> printfn "Results for simple exp: %A"
+
+trace {
+    if false then return 1
+    } |> printfn "Result for if without else: %A"
+
+let s = seq {printfn "zero" }    // Error
+let a = async {printfn "zero" }  // OK
+
+trace {
+    yield 1
+    } |> printfn "Result for yield: %A"
+
+trace {
+    yield! Some 1
+    } |> printfn "Result for yield!: %A"
+
+trace {
+    yield 1
+    yield 2
+    } |> printfn "Result for yield then yield: %A"
+
+trace {
+    yield 1
+    let! x = None
+    yield 2
+    } |> printfn "Result for yield then None: %A"
+
+trace {
+    yield 1
+    yield 2
+    yield 3
+    } |> printfn "Result for yield x 3: %A"
+
+// We can even try mixing up yield and return together. Other than the syntax difference, the overall effect is the same.
+
+trace {
+    yield 1
+    return 2
+    } |> printfn "Result for yield then return: %A"
+
+trace {
+    return 1
+    return 2
+    } |> printfn "Result for return then return: %A"
+
+type ListBuilder() =
+    member this.Bind(m, f) =
+        m |> List.collect f
+
+    member this.Zero() =
+        printfn "Zero"
+        []
+
+    member this.Yield(x) =
+        printfn "Yield an unwrapped %A as a list" x
+        [x]
+
+    member this.YieldFrom(m) =
+        printfn "Yield a list (%A) directly" m
+        m
+
+    member this.For(m,f) =
+        printfn "For %A" m
+        this.Bind(m,f)
+
+    member this.Combine (a,b) =
+        printfn "combining %A and %A" a b
+        List.concat [a;b]
+
+    member this.Delay(f) =
+        printfn "Delay"
+        f()
+
+// make an instance of the workflow
+let listbuilder = new ListBuilder()
+
+listbuilder {
+    yield 1
+    yield 2
+    } |> printfn "Result for yield then yield: %A"
+
+listbuilder {
+    yield 1
+    yield! [2;3]
+    } |> printfn "Result for yield then yield! : %A"
+
+listbuilder {
+    for i in ["red";"blue"] do
+        yield i
+        for j in ["hat";"tie"] do
+            yield! [i + " " + j;"-"]
+    } |> printfn "Result for for..in..do : %A"
+
+
+// A subtle but important point is that they are combined “backwards”, starting from the last value. 
+// First “3” is combined with “4”, and the result of that is then combined with “2”, and so on.
+listbuilder {
+    yield 1
+    yield 2
+    yield 3
+    yield 4
+    } |> printfn "Result for yield x 4: %A"
+
